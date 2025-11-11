@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Bundled output
+dist/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Editor/project files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Env/local configs
+.env
+.env.*.local
+
+# Coverage / temp
+coverage/
+temp/
+.tmp/
+
+# Vite cache (in node_modules)
+node_modules/.vite
+
