@@ -166,9 +166,10 @@ export default function MapCanvas({ projection, duration, layersVisible, citySam
       )
     }
 
-    // Distortion vectors (Orthographic vs Mercator) when Mercator selected
+    // Distortion vectors (Orthographic vs Mercator/EqualEarth)
     hitRefs.current.vectorPaths = []
-    if (toName === 'mercator' && layersVisible.cities) {
+    const showDistortionVectors = layersVisible.cities && (toName === 'mercator' || toName === 'equalEarth')
+    if (showDistortionVectors) {
       const ortho = getProjection('orthographic', width, height)
       const vectors = []
       ctx.save()
@@ -202,7 +203,7 @@ export default function MapCanvas({ projection, duration, layersVisible, citySam
           .slice(0, 5)
           .map(v => ({ name: v.name, length: v.length }))
       )
-    } else if (toName === 'mercator') {
+    } else {
       hitRefs.current.vectorPaths = []
       setDistortionStats?.([])
     }
@@ -242,7 +243,7 @@ export default function MapCanvas({ projection, duration, layersVisible, citySam
   }, [data, size, project, transform, toName, layersVisible, sampledCities, setDistortionStats])
 
   useEffect(() => {
-    if (toName !== 'mercator') {
+    if (toName !== 'mercator' && toName !== 'equalEarth') {
       setDistortionStats?.([])
     }
   }, [toName, setDistortionStats])
@@ -300,8 +301,8 @@ export default function MapCanvas({ projection, duration, layersVisible, citySam
       return
     }
 
-    // Distortion vector hover (Mercator only)
-    if (projection === 'mercator' && hitRefs.current.vectorPaths.length) {
+    // Distortion vector hover (Mercator/EqualEarth)
+    if ((projection === 'mercator' || projection === 'equalEarth') && hitRefs.current.vectorPaths.length) {
       ctx.lineWidth = 4
       for (const v of hitRefs.current.vectorPaths) {
         if (ctx.isPointInStroke(v.path, mx, my)) {

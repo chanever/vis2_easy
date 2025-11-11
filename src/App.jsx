@@ -34,11 +34,11 @@ export default function App() {
         </div>
       </header>
       <main className="flex-1 flex overflow-hidden">
-        {projection === 'mercator' && (
+        {(projection === 'mercator' || projection === 'equalEarth') && (
           <aside className="w-64 border-r bg-white p-4 overflow-y-auto">
             <h2 className="text-sm font-semibold text-gray-700 mb-2">Top 5 Distortions</h2>
             <p className="text-xs text-gray-500 mb-3">
-              Orthographic 대비 Mercator에서 가장 멀리 이동한 도시 (픽셀 기준)
+              Orthographic 대비 현재 투영에서 가장 멀리 이동한 도시 (픽셀 기준)
             </p>
             <ol className="space-y-2 text-sm">
               {distortionStats?.length ? distortionStats.map((d, idx) => (
