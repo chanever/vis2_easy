@@ -6,14 +6,45 @@ import drawCountries from '../utils/drawCountries.js'
 import drawCities from '../utils/drawCities.js'
 import drawRoutes from '../utils/drawRoutes.js'
 
-export default function MapCanvas({ projection, duration, layersVisible, setTooltip, setFps }) {
+const getLonLat = (d = {}) => {
+  let lon
+  let lat
+  if (d && d.type === 'Feature') {
+    if (d.geometry && d.geometry.type === 'Point' && Array.isArray(d.geometry.coordinates)) {
+      lon = d.geometry.coordinates[0]
+      lat = d.geometry.coordinates[1]
+    }
+    if ((lon == null || lat == null) && d.properties) {
+      lon = d.properties.longitude ?? d.properties.lon ?? d.properties.lng ?? lon
+      lat = d.properties.latitude ?? d.properties.lat ?? lat
+    }
+  } else {
+    lon = d.longitude ?? d.lon ?? d.lng
+    lat = d.latitude ?? d.lat
+  }
+  if (lon == null || lat == null) return null
+  return [lon, lat]
+}
+
+const getPopulation = (d = {}) => {
+  const props = d?.properties || d
+  const pop = props?.population ?? props?.pop ?? props?.POP ?? props?.Population
+  return Number.isFinite(+pop) ? +pop : -Infinity
+}
+
+const getCityName = (d = {}) => {
+  const props = d?.properties || {}
+  return d?.name || d?.city || props.name || props.city || 'City'
+}
+
+export default function MapCanvas({ projection, duration, layersVisible, citySample, setTooltip, setFps, setDistortionStats }) {
   const wrapRef = useRef(null)
   const canvasRef = useRef(null)
   const zoomRef = useRef(null)
   const [size, setSize] = useState({ width: 800, height: 500 })
   const [data, setData] = useState({ countries: null, cities: null, lanes: null })
   const [transform, setTransform] = useState(d3.zoomIdentity)
-  const hitRefs = useRef({ countryPaths: [], cityPoints: [], routePaths: [] })
+  const hitRefs = useRef({ countryPaths: [], cityPoints: [], routePaths: [], vectorPaths: [] })
   const lastFrameRef = useRef(performance.now())
   const debugLogRef = useRef(true)
   const lastLogKeyRef = useRef('')
@@ -55,6 +86,21 @@ export default function MapCanvas({ projection, duration, layersVisible, setTool
     currentName: projectionKey,
     duration
   })
+
+  const resolvedCities = useMemo(() => {
+    if (!data.cities) return []
+    if (Array.isArray(data.cities)) return data.cities
+    if (Array.isArray(data.cities?.features)) return data.cities.features
+    return []
+  }, [data.cities])
+
+  const sampledCities = useMemo(() => {
+    if (!resolvedCities?.length) return []
+    if (citySample === 'all') return resolvedCities
+    const limit = citySample === 'top50' ? 50 : 100
+    const sorted = [...resolvedCities].sort((a, b) => getPopulation(b) - getPopulation(a))
+    return sorted.slice(0, limit)
+  }, [resolvedCities, citySample])
 
   useEffect(() => {
     if (!canvasRef.current || !data.countries) return
@@ -114,28 +160,51 @@ export default function MapCanvas({ projection, duration, layersVisible, setTool
       }
       hitRefs.current.cityPoints = drawCities(
         ctx,
-        data.cities.features || data.cities,
+        sampledCities,
         project,
         { r: 2.2, fill: '#ff5722', visible: visFn }
       )
     }
 
     // Distortion vectors (Orthographic vs Mercator) when Mercator selected
+    hitRefs.current.vectorPaths = []
     if (toName === 'mercator' && layersVisible.cities) {
       const ortho = getProjection('orthographic', width, height)
+      const vectors = []
       ctx.save()
       ctx.strokeStyle = '#8b5cf6'
       ctx.globalAlpha = 0.7
       ctx.lineWidth = 0.6
-      ;(data.cities.features || data.cities).forEach(d => {
-        const a = ortho([d.longitude || d.lon || d.lng, d.latitude || d.lat])
-        const b = project([d.longitude || d.lon || d.lng, d.latitude || d.lat])
-        ctx.beginPath()
-        ctx.moveTo(a[0], a[1])
-        ctx.lineTo(b[0], b[1])
-        ctx.stroke()
+      sampledCities.forEach(d => {
+        const coords = getLonLat(d)
+        if (!coords) return
+        const a = ortho(coords)
+        const b = project(coords)
+        if (!a || !b) return
+        const seg = new Path2D()
+        seg.moveTo(a[0], a[1])
+        seg.lineTo(b[0], b[1])
+        ctx.stroke(seg)
+        const length = Math.hypot(b[0] - a[0], b[1] - a[1])
+        vectors.push({
+          path: seg,
+          feature: d,
+          length,
+          name: getCityName(d)
+        })
       })
       ctx.restore()
+      hitRefs.current.vectorPaths = vectors
+      setDistortionStats?.(
+        vectors
+          .filter(v => Number.isFinite(v.length))
+          .sort((a, b) => b.length - a.length)
+          .slice(0, 5)
+          .map(v => ({ name: v.name, length: v.length }))
+      )
+    } else if (toName === 'mercator') {
+      hitRefs.current.vectorPaths = []
+      setDistortionStats?.([])
     }
 
     // Dev logging: show projection change and high-latitude country colors
@@ -170,7 +239,13 @@ export default function MapCanvas({ projection, duration, layersVisible, setTool
     }
 
     ctx.restore()
-  }, [data, size, project, transform, toName, layersVisible])
+  }, [data, size, project, transform, toName, layersVisible, sampledCities, setDistortionStats])
+
+  useEffect(() => {
+    if (toName !== 'mercator') {
+      setDistortionStats?.([])
+    }
+  }, [toName, setDistortionStats])
 
   useEffect(() => {
     if (!canvasRef.current) return
@@ -204,6 +279,7 @@ export default function MapCanvas({ projection, duration, layersVisible, setTool
     // invert zoom/pan transform for hit tests in map coords
     const inv = transform.invert([x, y])
     const mx = inv[0], my = inv[1]
+    const ctx = canvasRef.current.getContext('2d')
 
     // City hover first (if visible)
     const city = layersVisible.cities && hitRefs.current.cityPoints.find(p => {
@@ -213,7 +289,7 @@ export default function MapCanvas({ projection, duration, layersVisible, setTool
     if (city) {
       const d = city.data
       const props = d?.properties || {}
-      const name = d?.name || d?.city || props.name || props.city || 'City'
+      const name = getCityName(d)
       const pop = d?.population ?? d?.pop ?? props.population ?? props.pop
       setTooltip({ x, y, content: (
         <div>
@@ -224,8 +300,27 @@ export default function MapCanvas({ projection, duration, layersVisible, setTool
       return
     }
 
+    // Distortion vector hover (Mercator only)
+    if (projection === 'mercator' && hitRefs.current.vectorPaths.length) {
+      ctx.lineWidth = 4
+      for (const v of hitRefs.current.vectorPaths) {
+        if (ctx.isPointInStroke(v.path, mx, my)) {
+          setTooltip({
+            x,
+            y,
+            content: (
+              <div>
+                <div className="font-semibold">{v.name}</div>
+                <div className="text-xs text-indigo-600">Distortion: {v.length.toFixed(1)} px</div>
+              </div>
+            )
+          })
+          return
+        }
+      }
+    }
+
     // Country hover
-    const ctx = canvasRef.current.getContext('2d')
     if (layersVisible.countries) for (const c of hitRefs.current.countryPaths) {
       if (ctx.isPointInPath(c.path, mx, my)) {
         const name = c.feature.properties?.name || c.feature.properties?.NAME || 'Country'

@@ -6,7 +6,23 @@ const options = [
   { value: 'equalEarth', label: 'EqualEarth' },
 ]
 
-export default function ControlPanel({ projection, duration, onChangeProjection, onChangeDuration, layersVisible, onToggleLayer, onToggleAll }) {
+const citySampleOptions = [
+  { value: 'all', label: '전체 도시' },
+  { value: 'top100', label: '상위 100개' },
+  { value: 'top50', label: '상위 50개' },
+]
+
+export default function ControlPanel({
+  projection,
+  duration,
+  onChangeProjection,
+  onChangeDuration,
+  layersVisible,
+  onToggleLayer,
+  onToggleAll,
+  citySample,
+  onChangeCitySample
+}) {
   const [open, setOpen] = React.useState(false)
   return (
     <div className="flex items-center gap-3 relative">
@@ -58,6 +74,19 @@ export default function ControlPanel({ projection, duration, onChangeProjection,
               <input type="checkbox" checked={!!layersVisible.routes} onChange={(e) => onToggleLayer('routes', e.target.checked)} />
               <span className="text-sm">Shipping Lanes</span>
             </label>
+            <div className="px-3 py-2 border-t">
+              <div className="text-xs text-gray-500 mb-1">City sample</div>
+              <select
+                className="w-full border rounded px-2 py-1 text-sm"
+                value={citySample}
+                onChange={(e) => onChangeCitySample(e.target.value)}
+              >
+                {citySampleOptions.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <div className="text-[11px] text-gray-400 mt-1">인구(population) 기준</div>
+            </div>
           </div>
         )}
       </div>

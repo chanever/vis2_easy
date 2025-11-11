@@ -5,7 +5,7 @@ React + Vite + TailwindCSS + D3.js 기반의 Canvas 지도 시각화 프로젝�
 ## 주요 특징
 - 투영 전환: Orthographic, Mercator, EqualEarth 간 부드러운 보간 애니메이션
 - 데이터 시각화: 국가 경계, 세계 도시 점, 항로 라인 Canvas 렌더링
-- 왜곡 강조: Mercator 선택 시 도시의 위치 변화 벡터 표시, 위도 기반 색조로 면적 왜곡 힌트
+- 왜곡 강조: Mercator 선택 시 도시의 위치 변화 벡터 + Top 5 왜곡 도시 대시보드, 위도 기반 색조로 면적 왜곡 힌트
 - 상호작용: 마우스 hover 툴팁(국가/도시/항로), D3 Zoom/Pan, 전환 지속시간 슬라이더
 - 상태 표시: 하단에 현재 투영 이름과 FPS 출력
 
@@ -76,14 +76,17 @@ npm run preview
 - 상단바
   - Projection: Orthographic / Mercator / EqualEarth 선택
   - Transition(ms): 투영 전환 애니메이션 시간 조절
-  - Datasets: 드롭다운에서 Countries / Cities / Shipping Lanes를 개별 토글해 조합을 순차적으로 확인 (3×3 조합 확인용)
+  - Datasets: 드롭다운에서 Countries / Cities / Shipping Lanes 개별 토글 + **City sample (All / Top100 / Top50)** 선택  
+    - 인구(population) 상위 N개만 렌더링하면 Mercator 왜곡 벡터가 과도하게 겹치는 문제를 줄일 수 있음
 - 지도 상호작용
   - 마우스 휠/드래그로 줌/팬
   - Hover
     - 국가: 국가명 표시
     - 도시: 도시명, 인구 표시
     - 항로: 항로 이름(있을 경우)
+    - Mercator 왜곡 벡터: 도시명 + Distortion Length(px) 팝업
 - 하단 상태 표시: 현재 투영 이름, FPS, 범례
+- Mercator일 때 좌측 대시보드: Orthographic 대비 가장 멀리 이동한 상위 5개 도시와 길이를 실시간 표시
 
 ## 왜곡 시각화 설명
 ### 기준 Projection
@@ -91,7 +94,9 @@ npm run preview
 - Orthographic 상태에서는 앞면만 렌더링하고(뒷면 클리핑) 90° 단위 회전 / 초기화 버튼을 제공해, *왜곡이 거의 없는 구면 기준*을 자유롭게 관찰할 수 있습니다.
 
 ### 표현 방식
-- **도시 왜곡 벡터**: Mercator 전환 시 각 도시 Feature에 대해 `orthographic → mercator` 좌표 변화를 짧은 선분으로 그려 이동 방향/거리 차이를 시각화합니다. 고위도로 갈수록 선 길이가 길어져 Mercator의 위도 의존 왜곡을 체감할 수 있습니다.
+- **도시 왜곡 벡터**: Mercator 전환 시 각 도시 Feature에 대해 `orthographic → mercator` 좌표 변화를 짧은 선분으로 그려 이동 방향/거리 차이를 시각화합니다. 선 길이가 길수록 해당 도시가 Mercator에서 더 멀리 이동(=상대적 왜곡이 큼)했음을 뜻하므로, 선 길이 자체가 왜곡 강도의 정성적 지표로 쓰입니다.
+  - City sample 토글을 이용하면 전체 / 상위 100 / 상위 50 도시만 골라 벡터를 표시할 수 있어 시각적 과밀을 제어하면서도 대표적인 왜곡 길이를 비교할 수 있습니다.
+  - 각 벡터에 마우스를 올리면 `City / Distortion length(px)` 툴팁이 나타나며, 좌측 대시보드에서는 현재 Mercator 화면에서 가장 길이가 긴(=왜곡이 큰) Top 5 도시를 자동으로 정렬해 보여줍니다.
 - **면적 색조(국가)**: 모든 투영에서 동일한 위도 기반 색(Violet↔Blue)을 유지해, Mercator가 과장하는 고위도 국가을 시각적으로 강조합니다. Orthographic/EqualEarth에서도 색이 유지되므로 사용자는 "실제 위치는 동일하지만 Mercator에서 이 정도 확대된다"는 정보를 계속 인지하게 됩니다.
 - **항로 곡률 비교**: 별도 색상/벡터는 없지만, 동일한 라인 데이터를 다른 투영으로 전환할 때 나타나는 곡률/거리 변화를 통해 왜곡을 체감할 수 있습니다.
 
