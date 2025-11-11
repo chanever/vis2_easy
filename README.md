@@ -76,6 +76,7 @@ npm run preview
 - 상단바
   - Projection: Orthographic / Mercator / EqualEarth 선택
   - Transition(ms): 투영 전환 애니메이션 시간 조절
+  - Datasets: 드롭다운에서 Countries / Cities / Shipping Lanes를 개별 토글해 조합을 순차적으로 확인 (3×3 조합 확인용)
 - 지도 상호작용
   - 마우스 휠/드래그로 줌/팬
   - Hover
@@ -106,4 +107,3 @@ npm run preview
 
 ## 라이선스
 - 내부 과제/학습용 예시. 별도 라이선스 명시 전까지 외부 공개 범위는 팀 정책을 따르세요.
-

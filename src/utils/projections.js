@@ -1,22 +1,65 @@
 import * as d3 from 'd3'
 
+const normalizeRotation = (deg) => {
+  if (!Number.isFinite(deg)) return 0
+  const mod = deg % 360
+  return mod < 0 ? mod + 360 : mod
+}
+
+export function parseProjectionKey(input = '') {
+  const raw = String(input ?? '').trim()
+  const [base, variantRaw] = raw.split(':')
+  const baseName = base || 'orthographic'
+  let variant = variantRaw
+  let rotationDeg = null
+  if (baseName === 'orthographic') {
+    if (!variant) variant = 'rot-0'
+    if (variant === 'front') rotationDeg = 0
+    else if (variant === 'back') rotationDeg = 180
+    else if (/^rot-/.test(variant)) {
+      const parsed = parseFloat(variant.replace(/^rot-/, ''))
+      rotationDeg = Number.isFinite(parsed) ? parsed : 0
+    } else {
+      const parsed = parseFloat(variant)
+      rotationDeg = Number.isFinite(parsed) ? parsed : 0
+    }
+    rotationDeg = normalizeRotation(rotationDeg ?? 0)
+  } else {
+    variant = variant || 'default'
+  }
+  return { baseName, variant, rotationDeg }
+}
+
+function getRotationForVariant(baseName, variant, rotationDeg) {
+  if (baseName !== 'orthographic') return [0, 0, 0]
+  const lon = rotationDeg ?? (variant === 'back' ? 180 : 0)
+  return [lon, 0, 0]
+}
+
 export function getProjection(name, width, height) {
+  const { baseName, variant, rotationDeg } = parseProjectionKey(name)
   const extent = [[0, 0], [width, height]]
   let projection
-  if (name === 'orthographic') {
+  if (baseName === 'orthographic') {
     projection = d3.geoOrthographic()
-  } else if (name === 'mercator') {
+  } else if (baseName === 'mercator') {
     projection = d3.geoMercator()
-  } else if (name === 'equalEarth') {
+  } else if (baseName === 'equalEarth') {
     projection = d3.geoEqualEarth()
   } else {
     projection = d3.geoNaturalEarth1()
   }
   projection.fitExtent(extent, { type: 'Sphere' })
+  if (baseName === 'orthographic') {
+    projection.scale(projection.scale() * 0.85)
+  }
+  const rotation = getRotationForVariant(baseName, variant, rotationDeg)
+  if (rotation) projection.rotate(rotation)
   const path = d3.geoPath(projection)
   const project = (lonlat) => projection(lonlat)
   project.path = path
   project.projection = projection
+  project.meta = { baseName, variant, rotation, rotationDeg }
   return project
 }
 

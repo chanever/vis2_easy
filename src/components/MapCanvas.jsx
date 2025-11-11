@@ -6,19 +6,18 @@ import drawCountries from '../utils/drawCountries.js'
 import drawCities from '../utils/drawCities.js'
 import drawRoutes from '../utils/drawRoutes.js'
 
-export default function MapCanvas({ projection, duration, setTooltip, setFps }) {
+export default function MapCanvas({ projection, duration, layersVisible, setTooltip, setFps }) {
   const wrapRef = useRef(null)
   const canvasRef = useRef(null)
+  const zoomRef = useRef(null)
   const [size, setSize] = useState({ width: 800, height: 500 })
   const [data, setData] = useState({ countries: null, cities: null, lanes: null })
   const [transform, setTransform] = useState(d3.zoomIdentity)
   const hitRefs = useRef({ countryPaths: [], cityPoints: [], routePaths: [] })
   const lastFrameRef = useRef(performance.now())
-  const [curProjName, setCurProjName] = useState(projection)
   const debugLogRef = useRef(true)
   const lastLogKeyRef = useRef('')
-
-  useEffect(() => setCurProjName(projection), [projection])
+  const [orthoRotation, setOrthoRotation] = useState(0)
 
   useEffect(() => {
     const ro = new ResizeObserver(entries => {
@@ -41,10 +40,19 @@ export default function MapCanvas({ projection, duration, setTooltip, setFps }) 
     }).catch(err => console.error(err))
   }, [])
 
+  useEffect(() => {
+    if (projection !== 'orthographic') setOrthoRotation(0)
+  }, [projection])
+
+  const projectionKey = useMemo(() => {
+    if (projection !== 'orthographic') return projection
+    return `orthographic:rot-${orthoRotation}`
+  }, [projection, orthoRotation])
+
   const { project, isTransitioning, fromName, toName, t } = useProjectionTransition({
     width: size.width,
     height: size.height,
-    currentName: curProjName,
+    currentName: projectionKey,
     duration
   })
 
@@ -68,24 +76,52 @@ export default function MapCanvas({ projection, duration, setTooltip, setFps }) 
     ctx.scale(transform.k, transform.k)
 
     // Countries
-    hitRefs.current.countryPaths = drawCountries(
-      ctx,
-      data.countries.features,
-      project,
-      {
-        stroke: '#ccc',
-        fillByLat: (f) => distortionColorByLatitude(avgLatitude(f))
-      }
-    )
+    hitRefs.current.countryPaths = []
+    if (layersVisible.countries) {
+      hitRefs.current.countryPaths = drawCountries(
+        ctx,
+        data.countries.features,
+        project,
+        {
+          stroke: '#ccc',
+          fillFn: (f) => distortionColorByLatitude(avgLatitude(f))
+        }
+      )
+    }
 
     // Shipping lanes
-    hitRefs.current.routePaths = drawRoutes(ctx, data.lanes.features || data.lanes, project, { stroke: '#1e88e5', width: 1 })
+    hitRefs.current.routePaths = []
+    if (layersVisible.routes) {
+      hitRefs.current.routePaths = drawRoutes(ctx, data.lanes.features || data.lanes, project, { stroke: '#1e88e5', width: 1 })
+    }
 
     // Cities
-    hitRefs.current.cityPoints = drawCities(ctx, data.cities.features || data.cities, project, { r: 2.2, fill: '#ff5722' })
+    hitRefs.current.cityPoints = []
+    if (layersVisible.cities) {
+      const isOrtho = (toName || '').startsWith('orthographic')
+      let visFn = null
+      if (isOrtho) {
+        let center = null
+        if (project?.projection?.rotate) {
+          const rot = project.projection.rotate()
+          center = [-rot[0], -rot[1]]
+        } else if (project?.meta?.viewCenter) {
+          center = project.meta.viewCenter
+        }
+        if (center) {
+          visFn = ([lon, lat]) => d3.geoDistance([lon, lat], center) <= Math.PI / 2 - 1e-6
+        }
+      }
+      hitRefs.current.cityPoints = drawCities(
+        ctx,
+        data.cities.features || data.cities,
+        project,
+        { r: 2.2, fill: '#ff5722', visible: visFn }
+      )
+    }
 
     // Distortion vectors (Orthographic vs Mercator) when Mercator selected
-    if (toName === 'mercator') {
+    if (toName === 'mercator' && layersVisible.cities) {
       const ortho = getProjection('orthographic', width, height)
       ctx.save()
       ctx.strokeStyle = '#8b5cf6'
@@ -134,13 +170,30 @@ export default function MapCanvas({ projection, duration, setTooltip, setFps }) 
     }
 
     ctx.restore()
-  }, [data, size, project, transform, toName])
+  }, [data, size, project, transform, toName, layersVisible])
 
   useEffect(() => {
     if (!canvasRef.current) return
+    const zoom = d3.zoom().scaleExtent([0.8, 10]).on('zoom', (e) => setTransform(e.transform))
+    zoomRef.current = zoom
     const sel = d3.select(canvasRef.current)
-    sel.call(d3.zoom().scaleExtent([0.8, 10]).on('zoom', (e) => setTransform(e.transform)))
+    sel.call(zoom)
+    return () => {
+      sel.on('.zoom', null)
+    }
   }, [])
+
+  const rotateOrthographic = () => {
+    setOrthoRotation(v => (v + 90) % 360)
+  }
+
+  const resetOrthographicView = () => {
+    setOrthoRotation(0)
+    setTransform(d3.zoomIdentity)
+    if (zoomRef.current && canvasRef.current) {
+      d3.select(canvasRef.current).call(zoomRef.current.transform, d3.zoomIdentity)
+    }
+  }
 
   const onMouseMove = (e) => {
     if (!canvasRef.current) return
@@ -152,16 +205,20 @@ export default function MapCanvas({ projection, duration, setTooltip, setFps }) 
     const inv = transform.invert([x, y])
     const mx = inv[0], my = inv[1]
 
-    // City hover first
-    const city = hitRefs.current.cityPoints.find(p => {
+    // City hover first (if visible)
+    const city = layersVisible.cities && hitRefs.current.cityPoints.find(p => {
       const dx = p.x - mx, dy = p.y - my
       return (dx*dx + dy*dy) <= (p.r + 3) * (p.r + 3)
     })
     if (city) {
+      const d = city.data
+      const props = d?.properties || {}
+      const name = d?.name || d?.city || props.name || props.city || 'City'
+      const pop = d?.population ?? d?.pop ?? props.population ?? props.pop
       setTooltip({ x, y, content: (
         <div>
-          <div className="font-semibold">{city.data.name || city.data.city || 'City'}</div>
-          {city.data.population && <div className="text-xs">Pop: {city.data.population.toLocaleString?.() || city.data.population}</div>}
+          <div className="font-semibold">{name}</div>
+          {pop != null && <div className="text-xs">Pop: {pop?.toLocaleString?.() || pop}</div>}
         </div>
       )})
       return
@@ -169,7 +226,7 @@ export default function MapCanvas({ projection, duration, setTooltip, setFps }) 
 
     // Country hover
     const ctx = canvasRef.current.getContext('2d')
-    for (const c of hitRefs.current.countryPaths) {
+    if (layersVisible.countries) for (const c of hitRefs.current.countryPaths) {
       if (ctx.isPointInPath(c.path, mx, my)) {
         const name = c.feature.properties?.name || c.feature.properties?.NAME || 'Country'
         setTooltip({ x, y, content: <div className="font-semibold">{name}</div> })
@@ -179,7 +236,7 @@ export default function MapCanvas({ projection, duration, setTooltip, setFps }) 
 
     // Route hover via stroke hit test with thicker width
     ctx.lineWidth = 6
-    for (const r of hitRefs.current.routePaths) {
+    if (layersVisible.routes) for (const r of hitRefs.current.routePaths) {
       if (ctx.isPointInStroke(r.path, mx, my)) {
         const name = r.feature.properties?.name || 'Shipping Lane'
         setTooltip({ x, y, content: <div className="font-semibold">{name}</div> })
@@ -191,7 +248,7 @@ export default function MapCanvas({ projection, duration, setTooltip, setFps }) 
   }
 
   return (
-    <div ref={wrapRef} className="w-full h-full">
+    <div ref={wrapRef} className="w-full h-full relative">
       <canvas
         ref={canvasRef}
         width={size.width}
@@ -200,6 +257,41 @@ export default function MapCanvas({ projection, duration, setTooltip, setFps }) 
         onMouseMove={onMouseMove}
         onMouseLeave={() => setTooltip(null)}
       />
+      {projection === 'orthographic' && (
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={rotateOrthographic}
+            className="bg-white/90 border border-gray-300 shadow-sm rounded-full px-4 py-2 flex items-center gap-2 text-sm font-medium text-gray-700 hover:bg-white focus:outline-none"
+            aria-label="현재 지구본을 회전"
+          >
+            <svg
+              className="w-4 h-4 text-gray-600 transform transition-transform"
+              style={{ transform: `rotate(${orthoRotation}deg)` }}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="1 4 1 10 7 10" />
+              <polyline points="23 20 23 14 17 14" />
+              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10" />
+              <path d="M3.51 15A9 9 0 0 0 18.36 18.36L23 14" />
+            </svg>
+            <span>회전 (90°)</span>
+          </button>
+          <button
+            type="button"
+            onClick={resetOrthographicView}
+            className="bg-white/90 border border-gray-300 shadow-sm rounded-full px-4 py-2 text-sm font-medium text-gray-700 hover:bg-white focus:outline-none"
+            aria-label="지구본 초기화"
+          >
+            초기화
+          </button>
+        </div>
+      )}
     </div>
   )
 }

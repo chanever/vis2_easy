@@ -9,6 +9,7 @@ export default function App() {
   const [duration, setDuration] = useState(1200)
   const [tooltip, setTooltip] = useState(null)
   const [fps, setFps] = useState(0)
+  const [layersVisible, setLayersVisible] = useState({ countries: true, cities: true, routes: true })
 
   const onChangeProjection = (next) => setProjection(next)
 
@@ -22,6 +23,9 @@ export default function App() {
             duration={duration}
             onChangeProjection={onChangeProjection}
             onChangeDuration={setDuration}
+            layersVisible={layersVisible}
+            onToggleLayer={(key, val) => setLayersVisible(prev => ({ ...prev, [key]: val }))}
+            onToggleAll={(val) => setLayersVisible({ countries: val, cities: val, routes: val })}
           />
         </div>
       </header>
@@ -29,6 +33,7 @@ export default function App() {
         <MapCanvas
           projection={projection}
           duration={duration}
+          layersVisible={layersVisible}
           setTooltip={setTooltip}
           setFps={setFps}
         />
@@ -48,4 +53,3 @@ export default function App() {
     </div>
   )
 }
-
