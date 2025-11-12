@@ -32,17 +32,17 @@ export default function ControlPanel({
   const [open, setOpen] = React.useState(false)
   const isGeodesic = distortionReference === 'geodesic'
   return (
-    <div className="flex flex-wrap items-center gap-4 relative">
-      <label className="flex items-center gap-2 text-sm text-gray-700">
+    <div className="flex items-center gap-4 relative flex-wrap md:flex-nowrap min-w-0 w-full">
+      <label className={`flex items-center gap-2 text-sm font-semibold whitespace-nowrap ${isGeodesic ? 'text-indigo-600' : 'text-gray-700'}`}>
         <input
           type="checkbox"
-          className="rounded"
+          className="rounded border-indigo-500 text-indigo-600 focus:ring-indigo-500"
           checked={isGeodesic}
           onChange={(e) => onChangeDistortionReference(e.target.checked ? 'geodesic' : 'projection')}
         />
-        <span>Geodesic reference</span>
+        <span>{isGeodesic ? 'Geodesic reference (기본)' : 'Geodesic reference 사용'}</span>
       </label>
-      <div className="flex flex-col">
+      <div className="flex flex-col flex-shrink-0">
         <label className="text-xs text-gray-500">From projection</label>
         <select
           className="border rounded px-2 py-1 bg-white text-sm"
@@ -55,7 +55,7 @@ export default function ControlPanel({
           ))}
         </select>
       </div>
-      <div className="flex flex-col">
+      <div className="flex flex-col flex-shrink-0">
         <label className="text-xs text-gray-500">To projection</label>
         <select
           className="border rounded px-2 py-1 bg-white text-sm"
@@ -67,7 +67,7 @@ export default function ControlPanel({
           ))}
         </select>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-shrink-0">
         <label className="text-sm text-gray-700 whitespace-nowrap">Transition (ms)</label>
         <input
           type="range"
@@ -80,7 +80,7 @@ export default function ControlPanel({
         <span className="w-12 text-right text-sm text-gray-600">{duration}</span>
       </div>
 
-      <div className="ml-2">
+      <div className="ml-2 whitespace-nowrap flex-shrink-0">
         <button
           type="button"
           onClick={() => setOpen(v => !v)}
