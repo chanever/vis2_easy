@@ -1,6 +1,6 @@
 import React from 'react'
 
-const options = [
+const projectionOptions = [
   { value: 'orthographic', label: 'Orthographic' },
   { value: 'mercator', label: 'Mercator' },
   { value: 'equalEarth', label: 'EqualEarth' },
@@ -13,39 +13,72 @@ const citySampleOptions = [
 ]
 
 export default function ControlPanel({
-  projection,
+  fromProjection,
+  toProjection,
   duration,
-  onChangeProjection,
+  onChangeFrom,
+  onChangeTo,
   onChangeDuration,
   layersVisible,
   onToggleLayer,
   onToggleAll,
   citySample,
-  onChangeCitySample
+  onChangeCitySample,
+  distortionMode,
+  onChangeDistortionMode,
+  distortionReference,
+  onChangeDistortionReference
 }) {
   const [open, setOpen] = React.useState(false)
+  const isGeodesic = distortionReference === 'geodesic'
   return (
-    <div className="flex items-center gap-3 relative">
-      <label className="text-sm text-gray-700">Projection</label>
-      <select
-        className="border rounded px-2 py-1 bg-white"
-        value={projection}
-        onChange={(e) => onChangeProjection(e.target.value)}
-      >
-        {options.map(o => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-      <label className="text-sm text-gray-700 ml-3">Transition (ms)</label>
-      <input
-        type="range"
-        min="200"
-        max="4000"
-        step="100"
-        value={duration}
-        onChange={(e) => onChangeDuration(+e.target.value)}
-      />
-      <span className="w-12 text-right text-sm text-gray-600">{duration}</span>
+    <div className="flex flex-wrap items-center gap-4 relative">
+      <label className="flex items-center gap-2 text-sm text-gray-700">
+        <input
+          type="checkbox"
+          className="rounded"
+          checked={isGeodesic}
+          onChange={(e) => onChangeDistortionReference(e.target.checked ? 'geodesic' : 'projection')}
+        />
+        <span>Geodesic reference</span>
+      </label>
+      <div className="flex flex-col">
+        <label className="text-xs text-gray-500">From projection</label>
+        <select
+          className="border rounded px-2 py-1 bg-white text-sm"
+          value={fromProjection}
+          onChange={(e) => onChangeFrom(e.target.value)}
+          disabled={isGeodesic}
+        >
+          {projectionOptions.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+      <div className="flex flex-col">
+        <label className="text-xs text-gray-500">To projection</label>
+        <select
+          className="border rounded px-2 py-1 bg-white text-sm"
+          value={toProjection}
+          onChange={(e) => onChangeTo(e.target.value)}
+        >
+          {projectionOptions.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-gray-700 whitespace-nowrap">Transition (ms)</label>
+        <input
+          type="range"
+          min="200"
+          max="4000"
+          step="100"
+          value={duration}
+          onChange={(e) => onChangeDuration(+e.target.value)}
+        />
+        <span className="w-12 text-right text-sm text-gray-600">{duration}</span>
+      </div>
 
       <div className="ml-2">
         <button
@@ -56,7 +89,7 @@ export default function ControlPanel({
           Datasets ▾
         </button>
         {open && (
-          <div className="absolute right-0 mt-1 w-48 bg-white border rounded shadow z-10">
+          <div className="absolute right-0 mt-1 w-56 bg-white border rounded shadow z-10">
             <div className="px-3 py-2 border-b flex items-center justify-between">
               <span className="text-xs text-gray-600">Toggle datasets</span>
               <button className="text-xs text-blue-600" onClick={() => onToggleAll(true)}>All</button>
@@ -86,6 +119,17 @@ export default function ControlPanel({
                 ))}
               </select>
               <div className="text-[11px] text-gray-400 mt-1">인구(population) 기준</div>
+            </div>
+            <div className="px-3 py-2 border-t">
+              <div className="text-xs text-gray-500 mb-1">왜곡 표시 방식</div>
+              <select
+                className="w-full border rounded px-2 py-1 text-sm"
+                value={distortionMode}
+                onChange={(e) => onChangeDistortionMode(e.target.value)}
+              >
+                <option value="vectors">보라색 선분</option>
+                <option value="nodes">노드 색상</option>
+              </select>
             </div>
           </div>
         )}

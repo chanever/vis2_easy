@@ -37,7 +37,33 @@ const getCityName = (d = {}) => {
   return d?.name || d?.city || props.name || props.city || 'City'
 }
 
-export default function MapCanvas({ projection, duration, layersVisible, citySample, setTooltip, setFps, setDistortionStats }) {
+const EARTH_RADIUS_KM = 6371
+
+const estimatePxPerKm = (project, centerLonLat, centerScreen) => {
+  if (!project || !centerLonLat || !centerScreen) return null
+  const delta = 0.1
+  const offset = [centerLonLat[0] + delta, centerLonLat[1]]
+  const a = centerScreen
+  const b = project(offset)
+  if (!b) return null
+  const geo = d3.geoDistance(centerLonLat, offset) * EARTH_RADIUS_KM
+  if (!geo) return null
+  const px = Math.hypot(b[0] - a[0], b[1] - a[1])
+  return geo ? px / geo : null
+}
+
+export default function MapCanvas({
+  fromProjection,
+  toProjection,
+  duration,
+  layersVisible,
+  citySample,
+  distortionMode,
+  distortionReference,
+  setTooltip,
+  setFps,
+  setDistortionStats
+}) {
   const wrapRef = useRef(null)
   const canvasRef = useRef(null)
   const zoomRef = useRef(null)
@@ -49,6 +75,8 @@ export default function MapCanvas({ projection, duration, layersVisible, citySam
   const debugLogRef = useRef(true)
   const lastLogKeyRef = useRef('')
   const [orthoRotation, setOrthoRotation] = useState(0)
+  const distortionMapRef = useRef(new Map())
+  const distortionMaxRef = useRef(0)
 
   useEffect(() => {
     const ro = new ResizeObserver(entries => {
@@ -72,18 +100,34 @@ export default function MapCanvas({ projection, duration, layersVisible, citySam
   }, [])
 
   useEffect(() => {
-    if (projection !== 'orthographic') setOrthoRotation(0)
-  }, [projection])
+    if (toProjection !== 'orthographic') setOrthoRotation(0)
+  }, [toProjection])
 
-  const projectionKey = useMemo(() => {
-    if (projection !== 'orthographic') return projection
+  const viewProjectionKey = useMemo(() => {
+    if (toProjection !== 'orthographic') return toProjection
     return `orthographic:rot-${orthoRotation}`
-  }, [projection, orthoRotation])
+  }, [toProjection, orthoRotation])
+
+  const baselineProjectionKey = useMemo(() => fromProjection, [fromProjection])
+
+  const prevViewKeyRef = useRef(viewProjectionKey)
+  const prevViewKey = prevViewKeyRef.current
+  useEffect(() => {
+    prevViewKeyRef.current = viewProjectionKey
+  }, [viewProjectionKey])
+
+  const transitionFromKey = useMemo(() => {
+    if (fromProjection && toProjection && fromProjection !== toProjection) {
+      return baselineProjectionKey
+    }
+    return prevViewKey
+  }, [fromProjection, toProjection, baselineProjectionKey, prevViewKey])
 
   const { project, isTransitioning, fromName, toName, t } = useProjectionTransition({
     width: size.width,
     height: size.height,
-    currentName: projectionKey,
+    fromKey: transitionFromKey,
+    toKey: viewProjectionKey,
     duration
   })
 
@@ -158,20 +202,32 @@ export default function MapCanvas({ projection, duration, layersVisible, citySam
           visFn = ([lon, lat]) => d3.geoDistance([lon, lat], center) <= Math.PI / 2 - 1e-6
         }
       }
+      const fill = (d) => {
+        if (distortionMode !== 'nodes') return '#ff5722'
+        const len = distortionMapRef.current.get(d)
+        if (!len || distortionMaxRef.current <= 0) return '#ff5722'
+        const ratio = Math.min(1, len / distortionMaxRef.current)
+        const rCol = Math.round(255 * (1 - ratio))
+        const gCol = Math.round(87 * (1 - ratio))
+        const bCol = Math.round(34 * (1 - ratio))
+        return `rgb(${rCol}, ${gCol}, ${bCol})`
+      }
       hitRefs.current.cityPoints = drawCities(
         ctx,
         sampledCities,
         project,
-        { r: 2.2, fill: '#ff5722', visible: visFn }
+        { r: 2.2, fill, visible: visFn }
       )
     }
 
-    // Distortion vectors (Orthographic vs Mercator/EqualEarth)
-    hitRefs.current.vectorPaths = []
-    const showDistortionVectors = layersVisible.cities && (toName === 'mercator' || toName === 'equalEarth')
-    if (showDistortionVectors) {
-      const ortho = getProjection('orthographic', width, height)
-      const vectors = []
+    const vectorEntries = []
+    distortionMapRef.current = new Map()
+    distortionMaxRef.current = 0
+
+    if (distortionReference === 'projection' && layersVisible.cities && fromProjection && toProjection && (fromProjection !== toProjection)) {
+      const baselineProj = getProjection(baselineProjectionKey, width, height)
+      const lookup = new Map()
+      let maxLength = 0
       ctx.save()
       ctx.strokeStyle = '#8b5cf6'
       ctx.globalAlpha = 0.7
@@ -179,29 +235,98 @@ export default function MapCanvas({ projection, duration, layersVisible, citySam
       sampledCities.forEach(d => {
         const coords = getLonLat(d)
         if (!coords) return
-        const a = ortho(coords)
+        const a = baselineProj(coords)
         const b = project(coords)
         if (!a || !b) return
-        const seg = new Path2D()
-        seg.moveTo(a[0], a[1])
-        seg.lineTo(b[0], b[1])
-        ctx.stroke(seg)
+        let seg = null
+        if (distortionMode === 'vectors') {
+          seg = new Path2D()
+          seg.moveTo(a[0], a[1])
+          seg.lineTo(b[0], b[1])
+          ctx.stroke(seg)
+        }
         const length = Math.hypot(b[0] - a[0], b[1] - a[1])
-        vectors.push({
+        maxLength = Math.max(maxLength, length)
+        lookup.set(d, length)
+        vectorEntries.push({
           path: seg,
           feature: d,
           length,
-          name: getCityName(d)
+          ratio: null,
+          name: getCityName(d),
+          display: `${length.toFixed(1)} px`
         })
       })
       ctx.restore()
-      hitRefs.current.vectorPaths = vectors
+      distortionMapRef.current = lookup
+      distortionMaxRef.current = maxLength
+      hitRefs.current.vectorPaths = distortionMode === 'vectors'
+        ? vectorEntries.filter(v => v.path)
+        : []
       setDistortionStats?.(
-        vectors
+        vectorEntries
           .filter(v => Number.isFinite(v.length))
           .sort((a, b) => b.length - a.length)
           .slice(0, 5)
-          .map(v => ({ name: v.name, length: v.length }))
+          .map(v => ({ name: v.name, value: v.length, display: v.display }))
+      )
+    } else if (distortionReference === 'geodesic' && layersVisible.cities && hitRefs.current.cityPoints.length) {
+      const centerLonLat = project?.meta?.viewCenter || [0, 0]
+      const centerScreen = project(centerLonLat) || [width / 2, height / 2]
+      const lookup = new Map()
+      let maxRatio = 0
+      const baselineScale = estimatePxPerKm(project, centerLonLat, centerScreen)
+      ctx.save()
+      ctx.strokeStyle = '#8b5cf6'
+      ctx.globalAlpha = 0.7
+      ctx.lineWidth = 0.6
+      hitRefs.current.cityPoints.forEach((pt) => {
+        const coords = getLonLat(pt.data)
+        if (!coords) return
+        const geoDistKm = d3.geoDistance(centerLonLat, coords) * EARTH_RADIUS_KM
+        if (!Number.isFinite(geoDistKm) || geoDistKm < 1e-3) return
+        const planarDistPx = Math.hypot(pt.x - centerScreen[0], pt.y - centerScreen[1])
+        const scaleFactor = planarDistPx / Math.max(geoDistKm, 1e-6)
+        const baseScale = baselineScale || scaleFactor
+        if (!baseScale) return
+        const ratio = (scaleFactor / baseScale) - 1
+        const ratioAbs = Math.abs(ratio)
+        lookup.set(pt.data, ratioAbs)
+        maxRatio = Math.max(maxRatio, ratioAbs)
+        let seg = null
+        if (distortionMode === 'vectors' && planarDistPx > 0) {
+          const gain = 120
+          const vecLength = Math.max(-80, Math.min(80, ratio * gain))
+          if (Math.abs(vecLength) > 0.5) {
+            const ux = (pt.x - centerScreen[0]) / planarDistPx
+            const uy = (pt.y - centerScreen[1]) / planarDistPx
+            seg = new Path2D()
+            seg.moveTo(pt.x, pt.y)
+            seg.lineTo(pt.x + ux * vecLength, pt.y + uy * vecLength)
+            ctx.stroke(seg)
+          }
+        }
+        vectorEntries.push({
+          path: seg,
+          feature: pt.data,
+          length: ratioAbs,
+          ratio,
+          name: getCityName(pt.data),
+          display: `${(ratio * 100).toFixed(1)} %`
+        })
+      })
+      ctx.restore()
+      distortionMapRef.current = lookup
+      distortionMaxRef.current = maxRatio
+      hitRefs.current.vectorPaths = distortionMode === 'vectors'
+        ? vectorEntries.filter(v => v.path)
+        : []
+      setDistortionStats?.(
+        vectorEntries
+          .filter(v => Number.isFinite(v.length))
+          .sort((a, b) => b.length - a.length)
+          .slice(0, 5)
+          .map(v => ({ name: v.name, value: v.length, display: v.display }))
       )
     } else {
       hitRefs.current.vectorPaths = []
@@ -240,13 +365,7 @@ export default function MapCanvas({ projection, duration, layersVisible, citySam
     }
 
     ctx.restore()
-  }, [data, size, project, transform, toName, layersVisible, sampledCities, setDistortionStats])
-
-  useEffect(() => {
-    if (toName !== 'mercator' && toName !== 'equalEarth') {
-      setDistortionStats?.([])
-    }
-  }, [toName, setDistortionStats])
+  }, [data, size, project, transform, toName, layersVisible, sampledCities, setDistortionStats, fromProjection, toProjection, baselineProjectionKey, distortionMode, distortionReference])
 
   useEffect(() => {
     if (!canvasRef.current) return
@@ -292,27 +411,38 @@ export default function MapCanvas({ projection, duration, layersVisible, citySam
       const props = d?.properties || {}
       const name = getCityName(d)
       const pop = d?.population ?? d?.pop ?? props.population ?? props.pop
+      const distortionVal = distortionMapRef.current.get(d)
+      let extra = null
+      if (distortionVal && distortionMaxRef.current > 0) {
+        extra = distortionReference === 'projection'
+          ? `Distortion: ${distortionVal.toFixed(1)} px`
+          : `Distortion: ${(distortionVal * 100).toFixed(1)} %`
+      }
       setTooltip({ x, y, content: (
         <div>
           <div className="font-semibold">{name}</div>
           {pop != null && <div className="text-xs">Pop: {pop?.toLocaleString?.() || pop}</div>}
+          {extra && <div className="text-xs text-indigo-600">{extra}</div>}
         </div>
       )})
       return
     }
 
-    // Distortion vector hover (Mercator/EqualEarth)
-    if ((projection === 'mercator' || projection === 'equalEarth') && hitRefs.current.vectorPaths.length) {
+    // Distortion vector hover when active
+    if (distortionMode === 'vectors' && hitRefs.current.vectorPaths.length) {
       ctx.lineWidth = 4
       for (const v of hitRefs.current.vectorPaths) {
         if (ctx.isPointInStroke(v.path, mx, my)) {
+          const label = distortionReference === 'projection'
+            ? `${v.length.toFixed(1)} px`
+            : `${(v.ratio * 100).toFixed(1)} %`
           setTooltip({
             x,
             y,
             content: (
               <div>
                 <div className="font-semibold">{v.name}</div>
-                <div className="text-xs text-indigo-600">Distortion: {v.length.toFixed(1)} px</div>
+                <div className="text-xs text-indigo-600">Distortion: {label}</div>
               </div>
             )
           })
@@ -353,7 +483,7 @@ export default function MapCanvas({ projection, duration, layersVisible, citySam
         onMouseMove={onMouseMove}
         onMouseLeave={() => setTooltip(null)}
       />
-      {projection === 'orthographic' && (
+      {toProjection === 'orthographic' && (
         <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2">
           <button
             type="button"

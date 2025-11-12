@@ -16,36 +16,33 @@ const interpolateAngle = (a, b, t) => {
   return start + diff * t
 }
 
-export default function useProjectionTransition({ width, height, currentName, duration }) {
-  const key = currentName
-  const prevNameRef = useRef(key)
+export default function useProjectionTransition({ width, height, fromKey, toKey, duration }) {
   const [t, setT] = useState(1)
   const rafRef = useRef(null)
   const startTimeRef = useRef(0)
+  const activeRef = useRef({ from: fromKey, to: toKey })
 
-  // Start a new transition when the projection key changes
   useEffect(() => {
-    if (prevNameRef.current === key) return
-    const from = prevNameRef.current
-    const to = key
-    prevNameRef.current = prevNameRef.current // keep old until finish
+    if (!fromKey || !toKey) return
     cancelAnimationFrame(rafRef.current)
+    activeRef.current = { from: fromKey, to: toKey }
+    if (fromKey === toKey) {
+      setT(1)
+      return
+    }
     startTimeRef.current = performance.now()
+    setT(0)
     const tick = (now) => {
       const el = Math.min(1, (now - startTimeRef.current) / Math.max(1, duration))
       setT(el)
       if (el < 1) rafRef.current = requestAnimationFrame(tick)
-      else prevNameRef.current = to
     }
-    setT(0)
-    prevNameRef.current = from
     rafRef.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafRef.current)
-  }, [key, duration])
+  }, [fromKey, toKey, duration])
 
-  const fromName = prevNameRef.current
-  const toName = key
-  const isTransitioning = t < 1 || fromName !== toName
+  const { from: fromName = toKey, to: toName = toKey } = activeRef.current
+  const isTransitioning = fromName !== toName && t < 1
 
   const fromProj = getProjection(fromName, width, height)
   const toProj = getProjection(toName, width, height)

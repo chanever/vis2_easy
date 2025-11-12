@@ -1,7 +1,6 @@
 export default function drawCities(ctx, cities, project, { r = 2.4, fill = '#ff5722', visible } = {}) {
   const pts = []
   ctx.save()
-  ctx.fillStyle = fill
   cities.forEach(d => {
     let lon, lat
     if (d && d.type === 'Feature') {
@@ -22,6 +21,8 @@ export default function drawCities(ctx, cities, project, { r = 2.4, fill = '#ff5
     const pt = project([lon, lat])
     if (!pt) return
     const [x, y] = pt
+    const color = typeof fill === 'function' ? fill(d) : fill
+    ctx.fillStyle = color || '#ff5722'
     ctx.beginPath()
     ctx.arc(x, y, r, 0, Math.PI * 2)
     ctx.fill()
