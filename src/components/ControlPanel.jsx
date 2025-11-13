@@ -32,7 +32,7 @@ export default function ControlPanel({
   const [open, setOpen] = React.useState(false)
   const isGeodesic = distortionReference === 'geodesic'
   return (
-    <div className="flex items-center gap-4 relative flex-wrap md:flex-nowrap min-w-0 w-full">
+    <div className="inline-flex items-center gap-4 relative flex-wrap md:flex-nowrap max-w-full justify-center">
       <label className={`flex items-center gap-2 text-sm font-semibold whitespace-nowrap ${isGeodesic ? 'text-indigo-600' : 'text-gray-700'}`}>
         <input
           type="checkbox"

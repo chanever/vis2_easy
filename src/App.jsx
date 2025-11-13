@@ -36,7 +36,7 @@ export default function App() {
       <header className="border-b bg-white">
         <div className="px-2 lg:px-4 py-2 flex flex-wrap md:flex-nowrap items-center gap-5">
           <h1 className="text-lg font-semibold whitespace-nowrap">Projection Distortion Visualizer</h1>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 flex justify-center">
             <ControlPanel
               fromProjection={fromProjection}
               toProjection={toProjection}
