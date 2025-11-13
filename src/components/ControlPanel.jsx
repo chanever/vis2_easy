@@ -32,15 +32,15 @@ export default function ControlPanel({
   const [open, setOpen] = React.useState(false)
   const isGeodesic = distortionReference === 'geodesic'
   return (
-    <div className="inline-flex items-center gap-4 relative flex-wrap md:flex-nowrap max-w-full justify-center text-sm text-white">
-      <label className={`flex items-center gap-2 text-sm font-semibold whitespace-nowrap px-3 py-1 rounded-full border ${isGeodesic ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white/10 border-white/30 text-white'}`}>
+    <div className="inline-flex items-center gap-4 relative flex-wrap md:flex-nowrap max-w-full justify-center text-sm text-slate-700">
+      <label className={`flex items-center gap-2 text-sm font-semibold whitespace-nowrap px-3 py-1 rounded-full border shadow ${isGeodesic ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-200'}`}>
         <input
           type="checkbox"
           className="rounded border-indigo-500 text-indigo-600 focus:ring-indigo-500"
           checked={isGeodesic}
           onChange={(e) => onChangeDistortionReference(e.target.checked ? 'geodesic' : 'projection')}
         />
-        <span>{isGeodesic ? 'Geodesic reference (기본)' : 'Geodesic reference 사용'}</span>
+        <span>{isGeodesic ? 'Geodesic reference (거리·면적 기준: geodesic + d3.geoArea)' : 'Geodesic reference 사용'}</span>
       </label>
       {!isGeodesic && (
         <div className="flex flex-col flex-shrink-0">

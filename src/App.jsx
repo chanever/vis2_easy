@@ -6,7 +6,7 @@ import MapCanvas from './components/MapCanvas.jsx'
 
 export default function App() {
   const [fromProjection, setFromProjection] = useState('orthographic')
-  const [toProjection, setToProjection] = useState('mercator')
+  const [toProjection, setToProjection] = useState('orthographic')
   const [duration, setDuration] = useState(1200)
   const [tooltip, setTooltip] = useState(null)
   const [fps, setFps] = useState(0)
@@ -26,7 +26,7 @@ export default function App() {
     const datasetTips = [
       'Countries: 위도 기반 색으로 면적 왜곡을 지속적으로 강조합니다.',
       'Cities: 샘플링 옵션으로 과밀을 조절하며, 벡터/색으로 위치·축척 왜곡을 확인합니다.',
-      'Shipping Lanes: To 투영에서의 곡률 변화를 통해 대권항로와의 차이를 비교합니다.'
+      'Shipping Lanes: 실선 색(파랑=축소, 빨강=확대)과 굵기로 길이 오차를 나타내고, 점선은 동일 구간을 직선 기준으로 연결합니다.'
     ]
     return { referenceText, displayText, datasetTips }
   }, [distortionReference, distortionMode, fromProjection, toProjection])
@@ -86,7 +86,7 @@ export default function App() {
             <div className="group relative inline-block">
               <button
                 type="button"
-                className="w-9 h-9 rounded-full border border-white/20 bg-white/10 text-sm font-semibold text-white hover:bg-white/20 shadow-[0_10px_25px_rgba(15,23,42,0.4)] backdrop-blur"
+                className="w-9 h-9 rounded-full border border-white/20 bg-white/90 text-sm font-semibold text-indigo-700 hover:bg-white shadow-lg flex items-center justify-center"
                 aria-label="정보 안내"
               >
                 i
@@ -95,6 +95,12 @@ export default function App() {
                 <p className="font-semibold text-slate-50 mb-1">현재 왜곡 해석</p>
                 <p className="mb-1">{infoDetails.referenceText}</p>
                 <p className="mb-2">{infoDetails.displayText}</p>
+                {distortionReference === 'geodesic' && (
+                  <p className="mb-2 text-[11px] text-orange-200 leading-relaxed">
+                    % 값은 지오데식 거리 대비 To 투영의 실제 축척 오차를 의미합니다.
+                    0%면 실제 거리와 동일, 음수이면 축척이 축소(픽셀 길이 &lt; 실제 길이), 양수이면 확대(픽셀 길이 &gt; 실제 길이)를 뜻합니다.
+                  </p>
+                )}
                 <p className="font-semibold text-slate-50 mb-1">Dataset tips</p>
                 <ul className="space-y-1 list-disc pl-4">
                   {infoDetails.datasetTips.map((line, idx) => (

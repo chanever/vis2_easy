@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import * as d3 from 'd3'
 import useProjectionTransition from '../hooks/useProjectionTransition.js'
-import { avgLatitude, distortionColorByLatitude, getProjection } from '../utils/projections.js'
+import { getProjection } from '../utils/projections.js'
 import drawCountries from '../utils/drawCountries.js'
 import drawCities from '../utils/drawCities.js'
-import drawRoutes from '../utils/drawRoutes.js'
 
 const getLonLat = (d = {}) => {
   let lon
@@ -72,8 +71,6 @@ export default function MapCanvas({
   const [transform, setTransform] = useState(d3.zoomIdentity)
   const hitRefs = useRef({ countryPaths: [], cityPoints: [], routePaths: [], vectorPaths: [] })
   const lastFrameRef = useRef(performance.now())
-  const debugLogRef = useRef(true)
-  const lastLogKeyRef = useRef('')
   const [orthoRotation, setOrthoRotation] = useState(0)
   const distortionMapRef = useRef(new Map())
   const distortionMaxRef = useRef(0)
@@ -95,6 +92,11 @@ export default function MapCanvas({
       d3.json('/data/world_cities.geojson'),
       d3.json('/data/shipping_lane.geojson'),
     ]).then(([countries, cities, lanes]) => {
+      if (countries?.features) {
+        countries.features.forEach(f => {
+          if (!f.__sphereArea) f.__sphereArea = d3.geoArea(f)
+        })
+      }
       setData({ countries, cities: cities?.features || cities, lanes })
     }).catch(err => console.error(err))
   }, [])
@@ -123,7 +125,7 @@ export default function MapCanvas({
     return prevViewKey
   }, [fromProjection, toProjection, baselineProjectionKey, prevViewKey])
 
-  const { project, isTransitioning, fromName, toName, t } = useProjectionTransition({
+  const { project, toName } = useProjectionTransition({
     width: size.width,
     height: size.height,
     fromKey: transitionFromKey,
@@ -146,6 +148,26 @@ export default function MapCanvas({
     return sorted.slice(0, limit)
   }, [resolvedCities, citySample])
 
+  const countryAreaMetrics = useMemo(() => {
+    try {
+      const proj = getProjection(toProjection, size.width, size.height)
+      const path = d3.geoPath(proj.projection)
+      const projectedSphereArea = Math.max(path.area({ type: 'Sphere' }) || 1, 1e-3)
+      const sphereArea = 4 * Math.PI
+      const sampleFeature = data.countries?.features?.[0]
+      const sampleProjected = sampleFeature ? path.area(sampleFeature) : 0
+      return {
+        path,
+        projectedSphereArea,
+        sphereArea,
+        debug: { sampleFeature, sampleProjected }
+      }
+    } catch (err) {
+      console.warn('Area metric calc failed', err)
+      return null
+    }
+  }, [toProjection, size.width, size.height, data.countries])
+
   useEffect(() => {
     if (!canvasRef.current || !data.countries) return
     const canvas = canvasRef.current
@@ -165,6 +187,39 @@ export default function MapCanvas({
     ctx.translate(transform.x, transform.y)
     ctx.scale(transform.k, transform.k)
 
+    const missingFill = []
+    const invalidFill = []
+    const baseCenterLonLat = project?.meta?.viewCenter || [0, 0]
+    const baseCenterScreen = project(baseCenterLonLat) || [width / 2, height / 2]
+    const fallbackPxPerKm = estimatePxPerKm(project, baseCenterLonLat, baseCenterScreen)
+
+    const getCountryFill = (feature) => {
+      if (!countryAreaMetrics?.path || !feature?.__sphereArea) {
+        missingFill.push(feature?.properties?.name || feature?.properties?.NAME || 'Unknown')
+        return '#f2f4f8'
+      }
+      const actualShare = feature.__sphereArea / countryAreaMetrics.sphereArea
+      const projectedShare = countryAreaMetrics.path.area(feature) / Math.max(countryAreaMetrics.projectedSphereArea, 1e-6)
+      let ratio = projectedShare / Math.max(actualShare, 1e-9)
+      if (!Number.isFinite(ratio) || ratio <= 0) {
+        invalidFill.push(feature?.properties?.name || feature?.properties?.NAME || 'Unknown')
+        ratio = Math.max(1e-6, Math.abs(ratio))
+      }
+      const diff = Math.max(-1, Math.min(1, Math.log2(ratio)))
+      if (diff >= 0) {
+        const t = Math.min(1, diff)
+        const r = 255
+        const g = Math.round(210 - 80 * t)
+        const b = Math.round(200 - 160 * t)
+        return `rgb(${r}, ${g}, ${b})`
+      }
+      const t = Math.min(1, -diff)
+      const r = Math.round(190 - 120 * t)
+      const g = Math.round(210 - 90 * t)
+      const b = 255
+      return `rgb(${r}, ${g}, ${b})`
+    }
+
     // Countries
     hitRefs.current.countryPaths = []
     if (layersVisible.countries) {
@@ -173,16 +228,133 @@ export default function MapCanvas({
         data.countries.features,
         project,
         {
-          stroke: '#ccc',
-          fillFn: (f) => distortionColorByLatitude(avgLatitude(f))
+          stroke: '#dadfe7',
+          fillFn: getCountryFill
         }
       )
+      if (missingFill.length) {
+        console.warn('[Country Fill] Missing area metrics for:', missingFill.slice(0, 10), '... (share this list if colors stay white)')
+      }
+      if (invalidFill.length) {
+        console.warn('[Country Fill] Invalid projected area ratio for:', invalidFill.slice(0, 10))
+      }
     }
 
     // Shipping lanes
     hitRefs.current.routePaths = []
-    if (layersVisible.routes) {
-      hitRefs.current.routePaths = drawRoutes(ctx, data.lanes.features || data.lanes, project, { stroke: '#1e88e5', width: 1 })
+    if (layersVisible.routes && data.lanes) {
+      const featureList = Array.isArray(data.lanes)
+        ? data.lanes
+        : (data.lanes.features || [])
+
+      const pxPerKmAt = (lonLat) => {
+        if (!lonLat) return fallbackPxPerKm
+        const screen = project(lonLat)
+        return estimatePxPerKm(project, lonLat, screen) || fallbackPxPerKm
+      }
+
+      const drawBaseline = (startCoord, endCoord) => {
+        const start = startCoord ? project(startCoord) : null
+        const end = endCoord ? project(endCoord) : null
+        if (!start || !end) return
+        const baseline = new Path2D()
+        baseline.moveTo(start[0], start[1])
+        baseline.lineTo(end[0], end[1])
+        ctx.save()
+        ctx.setLineDash([5, 4])
+        ctx.strokeStyle = 'rgba(255,255,255,0.55)'
+        ctx.lineWidth = 0.9
+        ctx.stroke(baseline)
+        ctx.restore()
+      }
+
+      const getStrokeForRatio = (ratio) => {
+        if (!Number.isFinite(ratio)) {
+          return { stroke: 'rgba(14,165,233,0.65)', width: 1.1 }
+        }
+        const clamp = Math.max(-0.6, Math.min(0.6, ratio))
+        if (clamp >= 0) {
+          const t = clamp / 0.6
+          return {
+            stroke: `rgba(239,68,68,${0.45 + 0.45 * t})`,
+            width: 1.2 + 1.6 * t
+          }
+        }
+        const t = (-clamp) / 0.6
+        return {
+          stroke: `rgba(14,165,233,${0.4 + 0.45 * t})`,
+          width: 1.1 + 1.4 * t
+        }
+      }
+
+      const flattenLineCoords = (lines = []) => {
+        const flat = []
+        lines.forEach(line => {
+          if (Array.isArray(line)) {
+            line.forEach(coord => { if (Array.isArray(coord)) flat.push(coord) })
+          }
+        })
+        return flat
+      }
+
+      featureList.forEach(feature => {
+        const geom = feature.geometry || {}
+        const lines = geom.type === 'LineString'
+          ? [geom.coordinates]
+          : geom.type === 'MultiLineString'
+            ? geom.coordinates
+            : null
+        if (!Array.isArray(lines) || !lines.length) return
+
+        const routePath = new Path2D()
+        let planarLenPx = 0
+        lines.forEach(line => {
+          if (!Array.isArray(line) || !line.length) return
+          let prevPt = null
+          line.forEach((coord, idx) => {
+            const pt = project(coord)
+            if (!pt) return
+            if (idx === 0) routePath.moveTo(pt[0], pt[1])
+            else routePath.lineTo(pt[0], pt[1])
+            if (prevPt) planarLenPx += Math.hypot(pt[0] - prevPt[0], pt[1] - prevPt[1])
+            prevPt = pt
+          })
+        })
+
+        const geoLenKm = d3.geoLength(feature) * EARTH_RADIUS_KM
+        const centroid = d3.geoCentroid(feature)
+        const pxPerKm = pxPerKmAt(centroid)
+        const approxKm = pxPerKm ? planarLenPx / pxPerKm : null
+        const ratio = (Number.isFinite(approxKm) && geoLenKm > 0)
+          ? (approxKm / geoLenKm) - 1
+          : null
+
+        const style = getStrokeForRatio(ratio)
+        ctx.save()
+        ctx.setLineDash([])
+        ctx.strokeStyle = style.stroke
+        ctx.lineWidth = style.width
+        ctx.globalAlpha = style.alpha ?? 1
+        ctx.stroke(routePath)
+        ctx.restore()
+
+        if (distortionReference === 'geodesic') {
+          const flat = flattenLineCoords(lines)
+          const startCoord = flat[0]
+          const endCoord = flat[flat.length - 1]
+          if (startCoord && endCoord) {
+            drawBaseline(startCoord, endCoord)
+          }
+        }
+
+        hitRefs.current.routePaths.push({
+          path: routePath,
+          feature,
+          ratio,
+          geoLenKm,
+          approxKm
+        })
+      })
     }
 
     // Cities
@@ -333,37 +505,6 @@ export default function MapCanvas({
       setDistortionStats?.([])
     }
 
-    // Dev logging: show projection change and high-latitude country colors
-    if (debugLogRef.current && data?.countries?.features) {
-      const stage = t < 0.02 ? 'start' : (t > 0.98 ? 'end' : '')
-      if (stage) {
-        const key = toName + ':' + stage
-        if (key !== lastLogKeyRef.current) {
-          lastLogKeyRef.current = key
-          const highs = data.countries.features
-            .map(f => ({ f, lat: avgLatitude(f) }))
-            .filter(d => d.lat >= 60)
-            .sort((a, b) => b.lat - a.lat)
-            .slice(0, 5)
-          // Fallback: if none >= 60, take top 5 by latitude
-          const sample = highs.length ? highs : data.countries.features
-            .map(f => ({ f, lat: avgLatitude(f) }))
-            .sort((a, b) => b.lat - a.lat)
-            .slice(0, 5)
-
-          // Note: fill color is latitude-based and does not change across projections
-          console.group(`[Projection] ${fromName} -> ${toName} (${stage}), t=${t.toFixed(2)}`)
-          console.info('Info: country fill uses latitude-based color; constant across projections.')
-          sample.forEach(({ f, lat }) => {
-            const name = f.properties?.name || f.properties?.NAME || 'Country'
-            const color = distortionColorByLatitude(lat)
-            console.log(`${name}: avgLat=${lat.toFixed(2)}, color=${color}`)
-          })
-          console.groupEnd()
-        }
-      }
-    }
-
     ctx.restore()
   }, [data, size, project, transform, toName, layersVisible, sampledCities, setDistortionStats, fromProjection, toProjection, baselineProjectionKey, distortionMode, distortionReference])
 
@@ -465,7 +606,22 @@ export default function MapCanvas({
     if (layersVisible.routes) for (const r of hitRefs.current.routePaths) {
       if (ctx.isPointInStroke(r.path, mx, my)) {
         const name = r.feature.properties?.name || 'Shipping Lane'
-        setTooltip({ x, y, content: <div className="font-semibold">{name}</div> })
+        const ratioLabel = Number.isFinite(r.ratio) ? `${(r.ratio * 100).toFixed(1)} %` : null
+        const ratioClass = r.ratio > 0 ? 'text-rose-600' : 'text-sky-600'
+        setTooltip({
+          x,
+          y,
+          content: (
+            <div>
+              <div className="font-semibold">{name}</div>
+              {ratioLabel && (
+                <div className={`text-xs ${ratioClass}`}>
+                  길이 왜곡: {ratioLabel}
+                </div>
+              )}
+            </div>
+          )
+        })
         return
       }
     }
