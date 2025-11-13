@@ -32,11 +32,14 @@ export default function App() {
   }, [distortionReference, distortionMode, fromProjection, toProjection])
 
   return (
-    <div className="h-full flex flex-col bg-gray-50">
-      <header className="border-b bg-white">
-        <div className="px-2 lg:px-4 py-2 flex flex-wrap md:flex-nowrap items-center gap-5">
-          <h1 className="text-lg font-semibold whitespace-nowrap">Projection Distortion Visualizer</h1>
-          <div className="flex-1 min-w-0 flex justify-center">
+    <div className="min-h-full flex flex-col">
+      <header className="w-full border-b border-white/10 bg-white/5 backdrop-blur flex flex-wrap items-center gap-5 px-4 py-3 shadow relative z-20">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-400/80 to-cyan-300/70 text-indigo-950 flex items-center justify-center font-bold text-base shadow-[0_10px_25px_rgba(99,102,241,0.45)]">PD</div>
+          <h1 className="text-xl font-semibold text-white whitespace-nowrap drop-shadow">Projection Distortion Visualizer</h1>
+        </div>
+        <div className="flex-1 min-w-[320px]">
+          <div className="bg-white/5 border border-white/10 rounded-2xl shadow-inner px-4 py-3 backdrop-blur">
             <ControlPanel
               fromProjection={fromProjection}
               toProjection={toProjection}
@@ -57,42 +60,42 @@ export default function App() {
           </div>
         </div>
       </header>
-      <main className="flex-1 flex overflow-hidden">
-        {(fromProjection !== toProjection || distortionReference === 'geodesic') && (
-          <aside className="w-64 border-r bg-white p-4 overflow-y-auto">
-            <h2 className="text-sm font-semibold text-gray-700 mb-2">Top 5 Distortions</h2>
-            <p className="text-xs text-gray-500 mb-3">
+     <main className="flex-1 flex overflow-hidden rounded-none lg:rounded-3xl bg-slate-900/40 border border-white/5 lg:border-white/10 shadow-[0_20px_60px_rgba(2,6,23,0.55)] backdrop-blur-lg mx-0 lg:mx-4 my-4 lg:my-6">
+       {(fromProjection !== toProjection || distortionReference === 'geodesic') && (
+          <aside className="w-64 border-r border-white/10 bg-white/5 p-4 overflow-y-auto text-slate-100">
+            <h2 className="text-sm font-semibold mb-2 text-white">Top 5 Distortions</h2>
+            <p className="text-xs text-white/80 mb-3">
               {distortionReference === 'projection'
                 ? 'From → To 투영으로 이동할 때 가장 크게 움직인 도시'
                 : '지오데식 거리 기준 가장 크게 왜곡된 도시'}
             </p>
             <ol className="space-y-2 text-sm">
               {distortionStats?.length ? distortionStats.map((d, idx) => (
-                <li key={d.name || idx} className="flex items-center justify-between">
-                  <span className="text-gray-700">{idx + 1}. {d.name}</span>
-                  <span className="text-indigo-600 font-semibold">{d.display}</span>
+                <li key={d.name || idx} className="flex items-center justify-between text-white">
+                  <span>{idx + 1}. {d.name}</span>
+                  <span className="font-semibold">{d.display}</span>
                 </li>
               )) : (
-                <li className="text-gray-400 text-xs">데이터 계산 중...</li>
+                <li className="text-white/70 text-xs">데이터 계산 중...</li>
               )}
             </ol>
           </aside>
-        )}
+       )}
         <div className="flex-1 relative">
           <div className="absolute top-4 right-4 z-10">
             <div className="group relative inline-block">
               <button
                 type="button"
-                className="w-8 h-8 rounded-full border border-gray-300 bg-white text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                className="w-9 h-9 rounded-full border border-white/20 bg-white/10 text-sm font-semibold text-white hover:bg-white/20 shadow-[0_10px_25px_rgba(15,23,42,0.4)] backdrop-blur"
                 aria-label="정보 안내"
               >
                 i
               </button>
-              <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded shadow-xl text-xs text-gray-700 p-3 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
-                <p className="font-semibold text-gray-800 mb-1">현재 왜곡 해석</p>
+              <div className="absolute right-0 mt-3 w-80 bg-slate-900/85 border border-white/10 rounded-xl shadow-2xl text-xs text-slate-100 p-4 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity backdrop-blur-xl">
+                <p className="font-semibold text-slate-50 mb-1">현재 왜곡 해석</p>
                 <p className="mb-1">{infoDetails.referenceText}</p>
                 <p className="mb-2">{infoDetails.displayText}</p>
-                <p className="font-semibold text-gray-800 mb-1">Dataset tips</p>
+                <p className="font-semibold text-slate-50 mb-1">Dataset tips</p>
                 <ul className="space-y-1 list-disc pl-4">
                   {infoDetails.datasetTips.map((line, idx) => (
                     <li key={idx}>{line}</li>
@@ -120,8 +123,8 @@ export default function App() {
           )}
         </div>
       </main>
-      <footer className="p-2 text-sm text-gray-600 bg-white border-t">
-        <div className="max-w-6xl mx-auto flex items-center gap-4">
+      <footer className="text-sm text-slate-200 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 shadow-[0_12px_35px_rgba(2,6,23,0.45)]">
+        <div className="flex items-center gap-4">
           <span>From: {fromProjection[0].toUpperCase() + fromProjection.slice(1)}</span>
           <span>To: {toProjection[0].toUpperCase() + toProjection.slice(1)}</span>
           <span>FPS: {fps.toFixed(0)}</span>

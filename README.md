@@ -73,7 +73,7 @@ npm run preview
 필드명이 상이할 경우 `src/utils/drawCities.js` 또는 hover 로직을 조정하세요.
 
 ## 사용 방법
-- 상단바
+- 상단바 (타이틀 + 컨트롤 카드)
   - Geodesic reference (체크박스): 기본 활성화. 켜면 실제 지표 거리 기준으로 왜곡을 계산하며 From 선택은 비활성화됨.
   - From / To Projection: 기준과 비교 투영을 각각 선택하여 원하는 조합을 즉시 비교 (Orthographic, Mercator, EqualEarth, AzimuthalEquidistant 지원). Geodesic reference를 끄면 From도 활성화됨.
   - Transition(ms): 투영 전환 애니메이션 시간 조절
